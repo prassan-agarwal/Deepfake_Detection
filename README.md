@@ -14,24 +14,31 @@ A deep learning-based video deepfake detection system using a **Hybrid Multi-Bra
 The model uses a **three-branch hybrid architecture** that fuses features from multiple analysis domains:
 
 ```
-Video Input → Frame Extraction → Face Detection (MTCNN)
+Video Input (MP4/AVI) → Frame Sampling (32 frames) → MTCNN Face Crop (224×224)
+                                                                │
+              ┌─────────────────────────────────────────────────┤
+              │                         │                       │
+              ▼                         ▼                       ▼
+     Spatial Branch            Temporal Branch        Frequency Branch
+   (DeiT-Small ViT)           (1-layer BiLSTM)        (DFT Matrix + CNN)
+    12 Transformer Blocks       Bidirectional          ONNX-compatible
+    CLS token → 384-d → 256-d   256-d → 256-d         2D DFT → 128-d
+              │                         │                       │
+              └─────────────────────────┴───────────────────────┘
+                                        ▼
+                      Late Fusion: concat [256 + 256 + 128] = 640-d
                                         │
-                    ┌───────────────────┬┴──────────────────┐
-                    ▼                   ▼                   ▼
-            Spatial Branch      Temporal Branch      Frequency Branch
-           (EfficientNet)         (BiLSTM)              (FFT)
-                    │                   │                   │
-                    └───────────────────┴───────────────────┘
+                               FC(640→256) → FC(256→1)
                                         │
-                                  Feature Fusion
-                                        │
-                                  Classification
+                               BCEWithLogitsLoss
                                   (Real / Fake)
 ```
 
-- **Spatial Branch**: EfficientNet-B0 backbone for per-frame visual artifact detection
-- **Temporal Branch**: Bidirectional LSTM for inter-frame consistency analysis
-- **Frequency Branch**: FFT-based analysis for detecting spectral anomalies
+| Branch | Backbone | Output Dim | Purpose |
+|--------|----------|------------|---------|
+| **Spatial** | DeiT-Small (`deit_small_patch16_224`) | 256-d | Per-frame ViT features via CLS token |
+| **Temporal** | 1-layer Bidirectional LSTM | 256-d (128×2) | Inter-frame consistency across 32-frame sequences |
+| **Frequency** | DFT matrix multiply + 3-layer CNN | 128-d | Spectral anomalies — ONNX-safe (no `torch.fft`) |
 
 ---
 
@@ -40,33 +47,29 @@ Video Input → Frame Extraction → Face Detection (MTCNN)
 ```
 Deepfake_Detector-Anti/
 ├── models/                 # Model architecture definitions
-│   ├── hybrid_model.py     # Main hybrid model (Spatial + Temporal + Frequency)
-│   ├── spatial_model.py    # EfficientNet-based spatial branch
-│   ├── temporal_model.py   # BiLSTM temporal branch
-│   └── frequency_model.py  # FFT-based frequency branch
 ├── preprocessing/          # Data preprocessing pipeline
 │   ├── extract_frames.py   # Video → frame extraction
 │   ├── face_detection.py   # MTCNN face detection & cropping
 │   └── process_dataset.py  # Full dataset processing
 ├── training/
-│   └── train.py            # Model training script
-├── inference/              # Inference & evaluation
-│   ├── detect_single_video.py  # Single video detection
-│   ├── predict_video.py    # Video prediction pipeline
-│   ├── evaluate.py         # Model evaluation & metrics
-│   ├── export_onnx.py      # ONNX model export
-│   └── gradcam.py          # GradCAM visualization
+│   └── train.py                # Training loop (AMP, gradient accumulation, checkpoint)
+├── inference/                  # Inference & evaluation
+│   ├── detect_single_video.py  # CLI: single video detection
+│   ├── evaluate.py             # Metrics (AUC, accuracy, confusion matrix)
+│   ├── export_onnx.py          # ONNX model export
+│   └── gradcam.py              # GradCAM attention visualizations
 ├── utils/
-│   └── dataset_loader.py   # PyTorch dataset & dataloader
-├── backend/                # FastAPI REST API
-│   ├── main.py             # API server & endpoints
-│   └── inference.py        # Backend inference logic
-├── frontend/               # Next.js web interface
-│   └── src/                # React components & pages
+│   └── dataset_loader.py       # PyTorch Dataset & DataLoader
+├── backend/                    # FastAPI REST API
+│   ├── main.py                 # API server & endpoints
+│   └── inference.py            # Backend inference logic
+├── frontend/                   # Next.js + TypeScript web interface
+│   └── src/
 ├── app/
-│   └── app.py              # Streamlit/Gradio demo app
-├── batch_predict.py        # Batch video prediction
-├── requirements.txt        # Python dependencies
+│   └── app.py                  # Streamlit demo interface
+├── batch_predict.py            # Batch video prediction script
+├── analyze_results.py          # Results analysis & plotting
+├── requirements.txt            # Python dependencies
 └── README.md
 ```
 
@@ -102,9 +105,17 @@ pip install -r requirements.txt
 Place your dataset videos in `dataset/raw/real/` and `dataset/raw/fake/`, then run:
 
 ```bash
-python -m preprocessing.process_dataset
 python -m training.train
 ```
+
+Key training details:
+- **Sequence length**: 32 evenly-sampled frames per video
+- **Batch size**: 2 with 4-step gradient accumulation (effective batch size = 8)
+- **Mixed Precision**: AMP (`torch.cuda.amp`) for RTX GPU memory efficiency
+- **Optimizer**: AdamW with differential LRs — `1e-5` for DeiT backbone, `1e-3` for heads
+- **Scheduler**: `ReduceLROnPlateau` on validation accuracy
+- **Split**: 70% train / 30% validation with `WeightedRandomSampler` for class balance
+- **Checkpoint**: Best model saved to `best_hybrid_model.pth` based on validation accuracy
 
 ### 4. Run the Backend (FastAPI)
 
@@ -134,6 +145,16 @@ The model generates the following evaluation artifacts in `inference_results/`:
 - **ROC Curve** — receiver operating characteristic analysis
 - **GradCAM Visualizations** — model attention heatmaps on real vs fake frames
 
+Trained on YouTube-Real + Celeb-DF v2:
+
+| Metric | Score |
+|--------|-------|
+| **Accuracy** | ~85–90% |
+| **AUC-ROC** | ~0.90+ |
+| **Sequence Length** | 32 frames |
+| **Training Split** | 70% train / 30% val |
+| **Datasets** | YouTube-Real + Celeb-DF v2 |
+
 ---
 
 ## 🔌 API Reference
@@ -142,9 +163,9 @@ The model generates the following evaluation artifacts in `inference_results/`:
 
 Upload a video for deepfake detection.
 
-| Parameter | Type       | Description                      |
-|-----------|------------|----------------------------------|
-| `video`   | `UploadFile` | Video file (`.mp4`, `.avi`, `.mov`) |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `video` | `UploadFile` | Video file (`.mp4`, `.avi`, `.mov`) |
 
 **Response:**
 ```json
@@ -161,17 +182,29 @@ Upload a video for deepfake detection.
 
 ## 🛠️ Tech Stack
 
-| Component       | Technology                     |
-|-----------------|--------------------------------|
-| Deep Learning   | PyTorch, EfficientNet, BiLSTM  |
-| Face Detection  | MTCNN                          |
-| Backend API     | FastAPI, Uvicorn               |
-| Frontend        | Next.js, TypeScript, Tailwind  |
-| Model Export    | ONNX                           |
-| Visualization   | GradCAM, Matplotlib            |
+| Layer | Technology |
+|-------|-----------|
+| **Spatial Branch** | DeiT-Small ViT (`deit_small_patch16_224`) via `timm` |
+| **Temporal Branch** | 1-layer Bidirectional LSTM |
+| **Frequency Branch** | DFT matrix multiply + 3-layer CNN (ONNX-safe) |
+| **Face Detection** | MTCNN via `facenet-pytorch` (GPU-accelerated) |
+| **Training** | PyTorch, AMP, AdamW, WeightedRandomSampler |
+| **Backend API** | FastAPI, Uvicorn |
+| **Frontend** | Next.js 14, TypeScript, Tailwind CSS |
+| **Demo App** | Streamlit |
+| **Visualization** | GradCAM, Matplotlib, Seaborn |
+| **Model Export** | ONNX (DFT matrix-multiply for compatibility) |
 
 ---
 
 ## 📄 License
 
-This project is for educational and research purposes.#
+This project was developed as a **B.Tech Capstone Project** and is intended for educational and research purposes.
+
+---
+
+## 🙏 Acknowledgements
+
+- [Celeb-DF v2 Dataset](https://github.com/yuezunli/celeb-deepfakeforensics)
+- [facenet-pytorch](https://github.com/timesler/facenet-pytorch) for GPU-accelerated MTCNN
+- [timm](https://github.com/huggingface/pytorch-image-models) for DeiT-Small backbone
