@@ -13,15 +13,40 @@ from models.hybrid_model import DeepfakeHybridModel
 from utils.dataset_loader import DeepfakeDataset
 
 class GradCAM:
-    def __init__(self, model, target_layer):
+    """
+    GradCAM for CNNs / Attention Map Extraction for Vision Transformers.
+    
+    For CNN: hooks into convolutional feature maps and uses gradients.
+    For ViT: hooks into the attention module to extract multi-head attention 
+             weights from the [CLS] token to the image patches.
+    """
+    def __init__(self, model, target_layer, is_transformer=False, grid_size=14):
         self.model = model
         self.target_layer = target_layer
+        self.is_transformer = is_transformer
+        self.grid_size = grid_size
         self.gradients = None
         self.activations = None
+        self.transformer_attns = []
         
         # Register hooks
-        target_layer.register_forward_hook(self.save_activation)
-        target_layer.register_full_backward_hook(self.save_gradient)
+        if self.is_transformer:
+            # We hook the self-attention module's forward pass to recompute attention weights
+            self.target_layer.attn.register_forward_hook(self.save_attention)
+        else:
+            target_layer.register_forward_hook(self.save_activation)
+            target_layer.register_full_backward_hook(self.save_gradient)
+            
+    def save_attention(self, module, input, output):
+        # input[0] is [B*S, N, C]
+        x = input[0]
+        B, N, C = x.shape
+        qkv = module.qkv(x).reshape(B, N, 3, module.num_heads, C // module.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+        q = q * module.scale
+        attn = (q @ k.transpose(-2, -1))
+        attn = attn.softmax(dim=-1)
+        self.transformer_attns.append(attn.detach())
         
     def save_activation(self, module, input, output):
         self.activations = output
@@ -31,46 +56,69 @@ class GradCAM:
         
     def generate(self, input_tensor):
         self.model.eval()
+        self.transformer_attns = [] # reset
+        
         # Hack to allow cuDNN RNN backward in eval mode
         if hasattr(self.model, 'temporal') and hasattr(self.model.temporal, 'lstm'):
             self.model.temporal.lstm.train()
             
         self.model.zero_grad()
         
-        # Requires gradients for the input (though we hook interior layer)
-        input_tensor.requires_grad_(True)
-        
+        if not self.is_transformer:
+            input_tensor.requires_grad_(True)
+            
         # Forward pass
         logits = self.model(input_tensor)
         
-        # Backward pass
-        # Since logit is BCE, we push 1.0 backward
-        logits.backward()
-        
-        # Activations/Gradients shape: [Batch*Seq, C, H, W]
-        gradients = self.gradients.detach()
-        activations = self.activations.detach()
-        
-        # Global Average Pooling on gradients -> [Batch*Seq, C, 1, 1]
-        weights = torch.mean(gradients, dim=[-2, -1], keepdim=True)
-        
-        # Weight the activations -> [Batch*Seq, C, H, W]
-        cam = weights * activations
-        
-        # Sum across channels -> [Batch*Seq, H, W]
-        cam = torch.sum(cam, dim=1)
-        
-        # ReLU to keep only positive influences
-        cam = torch.relu(cam)
-        
-        # Normalize
-        cam = cam.cpu().numpy()
-        for i in range(cam.shape[0]):
-            cam_min, cam_max = cam[i].min(), cam[i].max()
-            if cam_max > cam_min:
-                cam[i] = (cam[i] - cam_min) / (cam_max - cam_min)
-                
-        return cam, torch.sigmoid(logits).item()
+        if self.is_transformer:
+            # ── Vision Transformer path (Attention Map) ────────────────
+            attn = self.transformer_attns[-1] # [B*S, num_heads, N, N]
+            
+            # Average across heads
+            attn = attn.mean(dim=1) # [B*S, N, N]
+            
+            # The [CLS] token is at index 0. We want its attention to all patches (index 1 to N)
+            cls_attn = attn[:, 0, 1:] # [B*S, N-1]
+            
+            # Reshape patches back to 2D grid
+            cam = cls_attn.reshape(-1, self.grid_size, self.grid_size) # [B*S, 14, 14]
+            
+            # Normalize map to [0, 1] for visualization
+            cam = cam.cpu().numpy()
+            for i in range(cam.shape[0]):
+                cam_min, cam_max = cam[i].min(), cam[i].max()
+                if cam_max > cam_min:
+                    cam[i] = (cam[i] - cam_min) / (cam_max - cam_min)
+                    
+            return cam, torch.sigmoid(logits).item()
+            
+        else:
+            # ── CNN path (Standard GradCAM) ────────────────────────────
+            logits.backward()
+            
+            gradients = self.gradients.detach()
+            activations = self.activations.detach()
+            
+            # Global Average Pooling on gradients -> [B*S, C, 1, 1]
+            weights = torch.mean(gradients, dim=[-2, -1], keepdim=True)
+            
+            # Weight the activations -> [B*S, C, H, W]
+            cam = weights * activations
+            
+            # Sum across channels -> [B*S, H, W]
+            cam = torch.sum(cam, dim=1)
+            
+            # ReLU to keep only positive influences
+            cam = torch.relu(cam)
+            
+            # Normalize
+            cam = cam.cpu().numpy()
+            for i in range(cam.shape[0]):
+                cam_min, cam_max = cam[i].min(), cam[i].max()
+                if cam_max > cam_min:
+                    cam[i] = (cam[i] - cam_min) / (cam_max - cam_min)
+                    
+            return cam, torch.sigmoid(logits).item()
 
 def overlay_cam(img, cam, alpha=0.5):
     """img in [H, W, 3] uint8, cam in [H, W] float"""
@@ -101,12 +149,14 @@ def main():
         print(f"Error: {model_path} not found. Train the model first.")
         return
         
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     model = model.to(device)
     
-    # 2. Setup GradCAM on the final feature block of MobileNetV3
-    target_layer = model.spatial.features[-1]
-    cam_extractor = GradCAM(model, target_layer)
+    # 2. Setup GradCAM on the last transformer block of DeiT-Small
+    #    DeiT backbone structure: patch_embed → blocks[0..11] → norm
+    #    We hook the last transformer block to capture patch token activations
+    target_layer = model.spatial.backbone.blocks[-1]
+    cam_extractor = GradCAM(model, target_layer, is_transformer=True, grid_size=14)
     
     # 3. Load dataset
     transform = transforms.Compose([
@@ -123,7 +173,6 @@ def main():
     os.makedirs("inference_results", exist_ok=True)
     
     # 4. Pick one Real and one Fake video sequence
-    # Assuming the first part is real and the last part is fake based on dataset loader logic
     sample_indices = [0, len(dataset) - 1] 
     
     for idx in sample_indices:

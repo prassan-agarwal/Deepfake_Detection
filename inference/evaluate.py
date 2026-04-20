@@ -15,6 +15,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.hybrid_model import DeepfakeHybridModel
 from utils.dataset_loader import DeepfakeDataset
 
+from training.train import get_transforms
+
 def evaluate_model(real_dir, fake_dir, model_path="best_hybrid_model.pth", sequence_length=16, batch_size=2):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,17 +28,12 @@ def evaluate_model(real_dir, fake_dir, model_path="best_hybrid_model.pth", seque
         print(f"Error: Model weights not found at {model_path}")
         return
         
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     model = model.to(device)
     model.eval() # CRITICAL: Set model to evaluation mode
     
     # 2. Dataset and DataLoader setup
-    transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    transform = get_transforms(is_train=False)
     
     print("Loading evaluation dataset...")
     # NOTE: In a real-world scenario, you should use a separate Validation or Test split here.
@@ -134,4 +131,4 @@ if __name__ == "__main__":
     REAL_DIR = "dataset/processed/real"
     FAKE_DIR = "dataset/processed/fake"
     
-    evaluate_model(real_dir=REAL_DIR, fake_dir=FAKE_DIR)
+    evaluate_model(real_dir=REAL_DIR, fake_dir=FAKE_DIR, sequence_length=32)

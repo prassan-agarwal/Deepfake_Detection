@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Model Architecture</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leader-line/1.0.7/leader-line.min.js"></script>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #f5f6fa; 
+            margin: 0; 
+            padding: 40px;
+        }
+
+        .container {
+            width: max-content;
+            margin: 0 auto;
+            background: white;
+            padding: 60px 80px;
+            border-radius: 12px;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.05);
+            text-align: center;
+            position: relative;
+        }
+
+        .main-title {
+            background-color: #f39c12;
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            padding: 15px 40px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 60px;
+            box-shadow: 0 4px 10px rgba(243, 156, 18, 0.3);
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 120px 180px 300px 180px 240px 180px;
+            grid-template-rows: auto auto auto;
+            column-gap: 80px;
+            row-gap: 60px;
+            align-items: center;
+            justify-items: center;
+        }
+
+        .card { 
+            width: 100%;
+            border-radius: 8px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+            overflow: hidden; 
+            background: white; 
+            text-align: left; 
+            border: 2px solid;
+            position: relative;
+            z-index: 2;
+        }
+        
+        .card .header { 
+            font-weight: bold; 
+            padding: 12px 10px; 
+            color: white; 
+            text-align: center;
+            font-size: 16px; 
+        }
+        .card .body { 
+            padding: 15px; 
+            font-size: 13px; 
+            color: #444; 
+            line-height: 1.6; 
+        }
+        .card .model-name {
+            color: inherit;
+            font-weight: bold;
+            text-align: center;
+            display: block;
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+        .card .output { 
+            margin: 8px 15px 15px 15px; 
+            background: #e8f5e9; 
+            border: 1px solid #4caf50; 
+            padding: 8px; 
+            text-align: center; 
+            font-weight: bold; 
+            border-radius: 4px; 
+            color: #2e7d32;
+            font-size: 12px; 
+        }
+
+        /* Specific card colors */
+        .spatial { border-color: #4a69bd; grid-row: 1; grid-column: 3; }
+        .spatial .header { background: #4a69bd; }
+        .spatial .model-name { color: #4a69bd; }
+        
+        .temporal { border-color: #78e08f; grid-row: 2; grid-column: 3; }
+        .temporal .header { background: #78e08f; }
+        .temporal .model-name { color: #27ae60; }
+        
+        .frequency { border-color: #8e44ad; grid-row: 3; grid-column: 3; }
+        .frequency .header { background: #8e44ad; }
+        .frequency .model-name { color: #8e44ad; }
+        
+        .fusion { border-color: #e67e22; grid-row: 2; grid-column: 4; }
+        .fusion .header { background: #e67e22; }
+        .fusion .body { text-align: center; }
+        .fusion .vector { color: #e67e22; font-weight: bold; display:inline-block; padding:8px; border: 1px solid #e67e22; margin-top: 10px; border-radius:4px;}
+        
+        .classhead { border-color: #c0392b; grid-row: 2; grid-column: 5; }
+        .classhead .header { background: #c0392b; }
+        .classhead .body { text-align: center; }
+        .red-badge { color: #c0392b; border: 1px solid #e74c3c; padding: 4px; border-radius: 4px; font-weight: bold; margin-bottom: 5px; display:inline-block;}
+        .yellow-badge { color: #d35400; font-size: 12px; border: 1px solid #f39c12; padding: 4px; background: #fff8e1; border-radius: 4px; font-weight: bold; display:inline-block;}
+
+        .preproc { border-color: #38ada9; grid-row: 2; grid-column: 2; }
+        .preproc .header { background: #38ada9; }
+        .preproc .body { text-align: center; color: #555; font-size: 14px;}
+        
+        .video-wrapper { grid-row: 2; grid-column: 1; text-align: center; }
+        .videobox { background: #e74c3c; width: 80px; height: 60px; margin: 0 auto 10px auto; border-radius: 8px; position:relative; z-index: 2;}
+        .videobox .triangle { width: 0; height: 0; border-top: 12px solid transparent; border-bottom: 12px solid transparent; border-left: 20px solid white; position: absolute; top:50%; left:50%; transform: translate(-30%, -50%); }
+        .video-wrapper span { font-weight: bold; color: #333; font-size: 14px;}
+        
+        .result-real { background: #e8f5e9; border: 2px solid #2ecc71; color: #27ae60; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 16px; grid-row: 1; grid-column: 6; align-self: end; width: 100%; box-sizing: border-box; z-index: 2;}
+        .result-fake { background: #fadbd8; border: 2px solid #e74c3c; color: #c0392b; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 16px; grid-row: 3; grid-column: 6; align-self: start; width: 100%; box-sizing: border-box; z-index: 2;}
+        
+        .conf-score { grid-row: 2; grid-column: 6; font-size: 12px; color: #777; font-style: italic; }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-title">Model Architecture</div>
+        
+        <div class="grid-layout">
+            
+            <!-- Column 1 -->
+            <div class="video-wrapper" id="node-video">
+                <div class="videobox"><div class="triangle"></div></div>
+                <span>Input Video</span>
+            </div>
+
+            <!-- Column 2 -->
+            <div class="card preproc" id="node-preproc">
+                <div class="header">Preprocessing</div>
+                <div class="body">
+                    <strong>MTCNN Face Detection</strong><br/><br/>
+                    16 frames<br/>
+                    224 x 224<br/>
+                    ImageNet Norm
+                </div>
+            </div>
+
+            <!-- Column 3 -->
+            <div class="card spatial" id="node-spatial">
+                <div class="header">Spatial Branch</div>
+                <div class="body">
+                    <span class="model-name">DeiT-Small (Pretrained)</span>
+                    Features: 384 channels (CLS Token)<br/>
+                    FC: 384 &rarr; 256<br/>
+                    Activation: GELU<br/>
+                    Dropout: p=0.2
+                </div>
+                <div class="output">Output: [B, 256] + [B, 16, 256]</div>
+            </div>
+
+            <div class="card temporal" id="node-temporal">
+                <div class="header">Temporal Branch</div>
+                <div class="body">
+                    <span class="model-name">Bidirectional LSTM (BiLSTM)</span>
+                    Input: [B, 16, 256]<br/>
+                    Hidden Dim: 128<br/>
+                    Layers: 2, Bidirectional: True<br/>
+                    Final: concat(h_fwd, h_bwd)
+                </div>
+                <div class="output">Output: [B, 256]</div>
+            </div>
+
+            <div class="card frequency" id="node-frequency">
+                <div class="header">Frequency Branch</div>
+                <div class="body">
+                    <span class="model-name">2D FFT + Custom CNN</span>
+                    Center frame &rarr; FFT2D + fftshift<br/>
+                    Log magnitude spectrum<br/>
+                    Conv(3&rarr;16&rarr;32&rarr;64) + BN + ReLU<br/>
+                    AdaptiveAvgPool &rarr; FC: 64&rarr;128<br/>
+                    Dropout: p=0.2
+                </div>
+                <div class="output">Output: [B, 128]</div>
+            </div>
+
+            <!-- Column 4 -->
+            <div class="card fusion" id="node-fusion">
+                <div class="header">Feature Fusion</div>
+                <div class="body">
+                    Concatenation<br/><br/>
+                    256 + 256 + 128<br/>
+                    <span class="vector">= 640-d vector</span>
+                </div>
+            </div>
+
+            <!-- Column 5 -->
+            <div class="card classhead" id="node-classhead">
+                <div class="header">Classification Head</div>
+                <div class="body">
+                    FC: 640 &rarr; 256<br/>
+                    ReLU Activation<br/>
+                    Dropout (p=0.3)<br/>
+                    FC: 256 &rarr; 1<br/><br/>
+                    <div class="red-badge">Sigmoid &rarr; Probability</div><br/>
+                    <div class="yellow-badge">BCEWithLogitsLoss</div>
+                </div>
+            </div>
+
+            <!-- Column 6 -->
+            <div class="result-real" id="node-real">
+                &#10003;<br/>REAL
+            </div>
+            
+            <div class="conf-score" id="node-conf">
+                + Confidence Score
+            </div>
+
+            <div class="result-fake" id="node-fake">
+                &#9888;<br/>FAKE
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Script to draw arrows dynamically -->
+    <script>
+        window.addEventListener('load', function() {
+            // Common style
+            const lineOptions = { color: '#555', size: 2, path: 'fluid', endPlug: 'arrow3', startSocket: 'right', endSocket: 'left' };
+            
+            // Video -> Preproc
+            new LeaderLine(
+                document.getElementById('node-video'),
+                document.getElementById('node-preproc'),
+                lineOptions
+            );
+
+            // Preproc -> Branches
+            new LeaderLine(
+                document.getElementById('node-preproc'),
+                document.getElementById('node-spatial'),
+                lineOptions
+            );
+            new LeaderLine(
+                document.getElementById('node-preproc'),
+                document.getElementById('node-temporal'),
+                lineOptions
+            );
+            new LeaderLine(
+                document.getElementById('node-preproc'),
+                document.getElementById('node-frequency'),
+                lineOptions
+            );
+
+            // Spatial -> Temporal (Dotted green)
+            new LeaderLine(
+                document.getElementById('node-spatial'),
+                document.getElementById('node-temporal'),
+                { color: '#27ae60', size: 2, path: 'straight', dash: {animation: true}, startSocket: 'bottom', endSocket: 'top', middleLabel: LeaderLine.captionLabel('per-frame features', {color: '#27ae60', fontSize: '11px', outlineColor: 'white'}) }
+            );
+
+            // Branches -> Fusion
+            new LeaderLine(
+                document.getElementById('node-spatial'),
+                document.getElementById('node-fusion'),
+                { color: '#4a69bd', size: 2, path: 'fluid', startSocket: 'right', endSocket: 'left', middleLabel: LeaderLine.captionLabel('256-d', {color: '#4a69bd', fontSize: '13px', fontWeight: 'bold', outlineColor: 'white'}) }
+            );
+            new LeaderLine(
+                document.getElementById('node-temporal'),
+                document.getElementById('node-fusion'),
+                { color: '#27ae60', size: 2, path: 'straight', startSocket: 'right', endSocket: 'left', middleLabel: LeaderLine.captionLabel('256-d', {color: '#27ae60', fontSize: '13px', fontWeight: 'bold', outlineColor: 'white'}) }
+            );
+            new LeaderLine(
+                document.getElementById('node-frequency'),
+                document.getElementById('node-fusion'),
+                { color: '#8e44ad', size: 2, path: 'fluid', startSocket: 'right', endSocket: 'left', middleLabel: LeaderLine.captionLabel('128-d', {color: '#8e44ad', fontSize: '13px', fontWeight: 'bold', outlineColor: 'white'}) }
+            );
+
+            // Fusion -> Head
+            new LeaderLine(
+                document.getElementById('node-fusion'),
+                document.getElementById('node-classhead'),
+                lineOptions
+            );
+
+            // Head -> Results
+            new LeaderLine(
+                document.getElementById('node-classhead'),
+                document.getElementById('node-real'),
+                lineOptions
+            );
+            new LeaderLine(
+                document.getElementById('node-classhead'),
+                document.getElementById('node-fake'),
+                lineOptions
+            );
+        });
+    </script>
+</body>
+</html>

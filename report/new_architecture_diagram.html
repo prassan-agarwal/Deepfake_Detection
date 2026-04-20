@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DeepGuard Architecture Diagram</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f9f9f9; margin: 0; }
+        .mermaid { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div class="mermaid">
+        graph TD
+        %% Define styles matching the original diagram colors
+        classDef default fill:#ffffff,stroke:#002b5e,stroke-width:2px,color:#000000,font-family:sans-serif,font-weight:bold,text-align:center;
+        classDef upload fill:#ffffff,stroke:#002b5e,stroke-width:2px,shape:parallelogram;
+        classDef cylinder fill:#ffffff,stroke:#002b5e,stroke-width:2px,shape:cylinder;
+        classDef container fill:transparent,stroke:#002b5e,stroke-width:2px,stroke-dasharray: 5 5;
+        classDef legend fill:#ffffff,stroke:#000000,stroke-width:1px;
+
+        %% Nodes
+        Up[/"Upload<br/>Video"/]:::upload
+        Data[("Dataset<br/>(Fake/Real<br/>Videos)")]:::cylinder
+        
+        Preproc["Preprocessing:<br/>Frame Sampling (uniform),<br/>MTCNN Face Detection<br/>Face Cropping & Resize<br/>224x224<br/>ImageNet Normalization"]
+        
+        ProcData[("Processed<br/>Dataset<br/>(Face<br/>Sequences)")]:::cylinder
+        
+        Split["Data Splitting:<br/>Train/Validation/<br/>Test Split"]
+        Loader["DataLoader:<br/>Loads frame<br/>sequences &<br/>labels"]
+        Train["Train / Evaluate<br/>Model"]
+        
+        %% Model block
+        subgraph HybridBlock [Hybrid Deepfake Detection Model]
+            direction TB
+            Branch1["Spatial Branch:<br/>DeiT-Small<br/>Per-frame spatial tokens<br/>Vision Transformer"]
+            Branch2["Temporal Branch:<br/>Bidirectional LSTM<br/>Inter-frame modeling"]
+            Branch3["Frequency Branch:<br/>FFT + CNN<br/>Spectral artifacts"]
+            Fusion["Feature Fusion + FC Classifier"]
+            
+            Branch1 --> Fusion
+            Branch2 --> Fusion
+            Branch3 --> Fusion
+        end
+        
+        Eval["Model Evaluation:<br/>Confusion Matrix<br/>ROC Curve<br/>Visualization"]
+        Export["Export Trained<br/>Model (ONNX<br/>Format)"]
+        Back["FastAPI Backend<br/>(/api/detect<br/>endpoint)"]
+        Front["Next.js Frontend<br/>(User Interface)"]
+        Result["REAL / FAKE +<br/>Confidence Score"]
+        
+        %% Legend
+        subgraph LegendBox [ ]
+            direction LR
+            L1["&nbsp;&nbsp;"] ---|Training Flow| L2["&nbsp;&nbsp;"]
+            L3["&nbsp;&nbsp;"] -.-|Prediction Flow| L4["&nbsp;&nbsp;"]
+            style L1 display:none;
+            style L2 display:none;
+            style L3 display:none;
+            style L4 display:none;
+        end
+        style LegendBox fill:#fff,stroke:#000,stroke-width:1px
+        
+        %% Connections (Black line for Training, Red dotted/dashed for Prediction)
+        linkStyle default stroke:#000000,stroke-width:2px;
+        
+        Up -->|Prediction Flow| Preproc
+        linkStyle 0 stroke:#ff0000,stroke-width:2px;
+        
+        Data --> Preproc
+        Preproc --> ProcData
+        ProcData --> Split
+        Split --> Loader
+        Loader --> Train
+        Train --> HybridBlock
+        HybridBlock --> Export
+        Export --> Preproc
+        
+        %% Wait, in the image, Export Trained model points to Hybrid Model,
+        %% and Model evaluation points from Preprocessing?
+        %% Let's trace it accurately: Model Evaluation comes AFTER Export?
+        %% No, Train Evaluates, Model Evaluates. 
+        %% Let's just draw exactly what the image shows logically.
+        
+        Preproc -->|Load ONNX| Eval
+        linkStyle 8 stroke:#ff0000,stroke-width:2px;
+        
+        Export --> Branch1
+        Eval --> Export
+        Eval -->|Prediction Flow| Back
+        linkStyle 11 stroke:#ff0000,stroke-width:2px;
+        
+        Back -->|Prediction Flow| Front
+        linkStyle 12 stroke:#ff0000,stroke-width:2px;
+        
+        Front -->|Prediction Flow| Result
+        linkStyle 13 stroke:#ff0000,stroke-width:2px;
+        
+    </div>
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            flowchart: { curve: 'linear' },
+            themeVariables: {
+                lineColor: '#000000'
+            }
+        });
+    </script>
+</body>
+</html>

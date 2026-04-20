@@ -74,7 +74,7 @@ def batch_predict(folder, model_path="best_hybrid_model.pth", sequence_length=16
     print("Loading model...")
 
     model = DeepfakeHybridModel()
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     model = model.to(device)
     model.eval()
 

@@ -8,7 +8,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [result, setResult] = useState<{ is_fake: boolean; probability: number; confidence: string } | null>(null);
+  const [result, setResult] = useState<{ is_fake: boolean; probability: number; confidence: string; gradcam_base64?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,6 +78,7 @@ export default function Home() {
         is_fake: data.is_fake,
         probability: data.fake_probability,
         confidence: data.confidence_percentage,
+        gradcam_base64: data.gradcam_base64,
       });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred during detection.");
@@ -100,7 +101,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-blue-500/30 text-sm font-medium text-blue-400 mb-2"
           >
-            <Asterisk size={16} className="animate-pulse" /> AI-Powered Spatial-Temporal Analysis
+            <Asterisk size={16} className="animate-pulse" /> AI-Powered Spatiotemporal Frequency Analysis
           </motion.div>
           
           <motion.h1 
@@ -157,7 +158,7 @@ export default function Home() {
                 </div>
                 <h3 className="text-xl font-semibold mb-2 text-gray-200">Drag & Drop your video here</h3>
                 <p className="text-sm text-gray-500 text-center max-w-sm">
-                  Or click to browse. Supports MP4, AVI, and MOV files. We process the first 16 frames through ONNX-optimized models.
+                  Or click to browse. Supports MP4, AVI, and MOV files. We process the frames through ONNX-optimized models.
                 </p>
               </motion.div>
             ) : (
@@ -251,6 +252,25 @@ export default function Home() {
                              className={`h-full absolute left-0 top-0 ${result.is_fake ? 'bg-gradient-to-r from-red-600 to-rose-400' : 'bg-gradient-to-r from-emerald-600 to-teal-400'}`}
                           />
                         </div>
+
+                        {/* GradCAM Heatmap UI element */}
+                        {result.gradcam_base64 && (
+                          <div className="mt-8 border-t border-white/10 pt-6">
+                            <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2 mb-4 uppercase tracking-wider">
+                               <Asterisk size={14} className="text-blue-400" /> Model Attention Map
+                            </h3>
+                            <div className="rounded-xl overflow-hidden border border-white/10 shadow-lg bg-black/40 flex items-center justify-center p-2">
+                               <img 
+                                 src={result.gradcam_base64} 
+                                 alt="AI Attention Heatmap" 
+                                 className="rounded-lg object-contain w-full max-h-64"
+                               />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-3 text-center">
+                              Highlighted regions indicate where the Vision Transformer focused its analysis.
+                            </p>
+                          </div>
+                        )}
 
                         <div className="mt-8 flex justify-center">
                            <button onClick={resetState} className="text-sm px-4 py-2 rounded-full border border-white/20 hover:bg-white/10 transition-colors flex items-center gap-2">

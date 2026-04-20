@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DeepGuard Testing Workflow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f9f9f9; margin: 0; }
+        .mermaid { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;}
+    </style>
+</head>
+<body>
+    <div class="mermaid">
+        ---
+        title: TESTING WORKFLOW
+        ---
+        graph TD
+        classDef default fill:#ffffff,stroke:#000000,stroke-width:2px,color:#000000,font-family:sans-serif,font-size:14px,text-align:center;
+        classDef ioBox fill:#ffffff,stroke:#000,stroke-width:2px,shape:parallelogram;
+        classDef decision fill:#ffffff,stroke:#000000,stroke-width:2px,shape:diamond;
+        classDef fakeBox fill:#ffffff,stroke:#000,stroke-width:2px,shape:parallelogram,color:#d32f2f;
+        classDef realBox fill:#ffffff,stroke:#000,stroke-width:2px,shape:parallelogram,color:#388e3c;
+        classDef inference fill:#eaeaea,stroke:#000000,stroke-width:2px;
+
+        %% Nodes
+        Upload[/"User Video Upload<br/>(Next.js Frontend)"/]:::ioBox
+        
+        Backend["FastAPI Backend (/api/detect endpoint)<br/>- Receives uploaded video file"]
+        
+        Preproc["Pre-processing:<br/>- Uniform Frame Sampling (16 frames)<br/>- MTCNN Face Detection & Cropping<br/>- Resize to 224x224<br/>- ImageNet Normalization<br/>- Fallback: Center-crop if no face detected"]
+        
+        LoadOnnx["Load ONNX Model (ONNX Runtime - CPU Inference)"]
+        
+        %% Inference Block
+        subgraph InferBlock [Multi-Branch Inference]
+            direction TB
+            subgraph Branches [ ]
+                direction LR
+                B1["Spatial Branch<br/>(DeiT-Small)"]
+                B2["Temporal Branch<br/>(BiLSTM)"]
+                B3["Frequency Branch<br/>(FFT+CNN)"]
+            end
+            style Branches fill:transparent,stroke:none;
+            
+            Fusion["Feature Fusion + Sigmoid Classifier"]
+            
+            B1 --> Fusion
+            B2 --> Fusion
+            B3 --> Fusion
+        end
+        style InferBlock fill:#eaeaea,stroke:#000000,stroke-width:2px
+        
+        Cond{"Fake Probability >= 0.5?"}:::decision
+        
+        Fake[/"FAKE<br/>Confidence Score %"/]:::fakeBox
+        Real[/"REAL<br/>Confidence Score %"/]:::realBox
+        
+        Response["JSON Response returned<br/>to Next.js Frontend"]
+        
+        %% Paths
+        Upload --> Backend
+        Backend --> Preproc
+        Preproc --> LoadOnnx
+        LoadOnnx --> InferBlock
+        InferBlock --> Cond
+        
+        Cond -->|Yes| Fake
+        Cond -->|No| Real
+        
+        Fake --> Response
+        Real --> Response
+        
+        %% Link styles
+        linkStyle default stroke:#000000,stroke-width:2px;
+    </div>
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            flowchart: { curve: 'linear' },
+            themeVariables: {
+                lineColor: '#000000'
+            }
+        });
+    </script>
+</body>
+</html>

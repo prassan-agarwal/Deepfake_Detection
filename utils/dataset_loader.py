@@ -58,11 +58,13 @@ class DeepfakeDataset(Dataset):
             if image is None:
                 continue # Edge case handling, shouldn't normally happen
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
-            if self.transform:
-                image = self.transform(image)
-                
             frames.append(image)
+            
+        if self.transform:
+            if getattr(self.transform, 'is_sequence_transform', False):
+                frames = self.transform(frames)
+            else:
+                frames = [self.transform(img) for img in frames]
             
         # Stack frames along a new sequence dimension
         # If transform converts to tensor [C, H, W], stack produces [Seq, C, H, W]

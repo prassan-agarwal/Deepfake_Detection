@@ -43,19 +43,28 @@ async def detect_deepfake(video: UploadFile = File(...)):
             shutil.copyfileobj(video.file, buffer)
             
         # Run the massive ML pipeline
-        probability = float(run_deepfake_inference(temp_path))
+        probability, input_tensor = run_deepfake_inference(temp_path)
         
         is_fake = probability >= 0.5
         
         # Round probability for a cleaner frontend display
         confidence = round(probability * 100, 2) if is_fake else round((1 - probability) * 100, 2)
         
+        # Generate GradCAM Heatmap Base64 (Heavy, loaded gracefully)
+        try:
+            from backend.inference import generate_gradcam_base64
+            gradcam_base64 = generate_gradcam_base64(input_tensor)
+        except Exception as e:
+            print(f"Error generating GradCAM: {e}")
+            gradcam_base64 = None
+            
         return {
             "success": True,
             "filename": video.filename,
             "is_fake": is_fake,
             "fake_probability": probability,
-            "confidence_percentage": f"{confidence}%"
+            "confidence_percentage": f"{confidence}%",
+            "gradcam_base64": gradcam_base64
         }
         
     except Exception as e:

@@ -17,7 +17,7 @@ def export_to_onnx(model_path="best_hybrid_model.pth", output_path="inference_re
         print(f"Error: Could not find {model_path}. Please train the model first.")
         return
         
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     model = model.to(device)
     model.eval()
     
@@ -41,7 +41,7 @@ def export_to_onnx(model_path="best_hybrid_model.pth", output_path="inference_re
             do_constant_folding=True,  # whether to execute constant folding for optimization
             input_names=['input_sequence'],   # the model's input names
             output_names=['fake_probability_logit'], # the model's output names
-            dynamic_axes={'input_sequence': {0: 'batch_size'},    # variable length axes
+            dynamic_axes={'input_sequence': {0: 'batch_size', 1: 'sequence_length'},    # variable length axes
                           'fake_probability_logit': {0: 'batch_size'}}
         )
         print("Optimization complete! ONNX model exported successfully.")

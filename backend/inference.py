@@ -99,12 +99,39 @@ def extract_and_process_frames(video_path, num_frames=16):
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+import torch
+import base64
+from inference.gradcam import GradCAM, overlay_cam
+from models.hybrid_model import DeepfakeHybridModel
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+pytorch_model = None
+
+def load_pytorch_model():
+    global pytorch_model
+    if pytorch_model is None:
+        model_path = os.path.join(PROJECT_ROOT, "best_hybrid_model.pth")
+        if os.path.exists(model_path):
+            pytorch_model = DeepfakeHybridModel()
+            pytorch_model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
+            pytorch_model = pytorch_model.to(device)
+            pytorch_model.eval()
+        else:
+            print("WARNING: PyTorch model not found for GradCAM generation.")
+    return pytorch_model
+
+def get_normalize_transform():
+    # Same normalizations used during training
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    return mean, std
+
 def run_deepfake_inference(video_path):
     if ort_session is None:
         raise RuntimeError("ONNX Model strictly required but not loaded.")
         
     # 1. Prepare Data
-    input_tensor = extract_and_process_frames(video_path, num_frames=16)
+    input_tensor = extract_and_process_frames(video_path, num_frames=32)
     
     if input_tensor is None:
         raise ValueError("Could not extract any valid sequence from the video.")
@@ -119,6 +146,43 @@ def run_deepfake_inference(video_path):
     
     # 3. Postprocess
     logit = outputs[0][0][0] # Access single output scalar logit
-    probability = sigmoid(logit)
+    probability = float(sigmoid(logit))
     
-    return probability
+    return probability, input_tensor
+
+def generate_gradcam_base64(sequence_array):
+    model = load_pytorch_model()
+    if model is None:
+        return None
+        
+    target_layer = model.spatial.backbone.blocks[-1]
+    cam_extractor = GradCAM(model, target_layer, is_transformer=True, grid_size=14)
+    
+    # sequence_array is [1, 16, 3, 224, 224] as numpy float32.
+    input_tensor = torch.tensor(sequence_array).to(device)
+    
+    cam, _ = cam_extractor.generate(input_tensor)
+    
+    # Select middle frame to overlay
+    mid_idx = sequence_array.shape[1] // 2
+    
+    frame = sequence_array[0, mid_idx]
+    mean, std = get_normalize_transform()
+    frame = frame.transpose(1, 2, 0) # [224, 224, 3]
+    frame = (frame * std) + mean
+    frame = np.clip(frame * 255.0, 0, 255).astype(np.uint8)
+    
+    heatmap = cam[mid_idx]
+    
+    overlaid = overlay_cam(frame, heatmap, alpha=0.5)
+    
+    # Convert RGB to BGR for cv2 encoding
+    overlaid_bgr = cv2.cvtColor(overlaid, cv2.COLOR_RGB2BGR)
+    
+    # Encode to JPEG, then Base64
+    success, buffer = cv2.imencode('.jpg', overlaid_bgr)
+    if not success:
+        return None
+        
+    b64_str = base64.b64encode(buffer).decode('utf-8')
+    return f"data:image/jpeg;base64,{b64_str}"

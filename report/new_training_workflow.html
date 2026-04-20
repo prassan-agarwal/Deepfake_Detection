@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>DeepGuard Training Workflow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f9f9f9;
+            margin: 0;
+        }
+
+        .mermaid {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        h2 {
+            text-align: left;
+            font-size: 24px;
+            color: #333;
+            margin-top: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="mermaid">
+        ---
+        title: TRAINING WORKFLOW
+        ---
+        graph TD
+        classDef default
+        fill:#ffffff,stroke:#000000,stroke-width:2px,color:#000000,font-family:sans-serif,font-size:14px,text-align:center;
+        classDef cylinder fill:#ffffff,stroke:#000000,stroke-width:2px,shape:cylinder;
+        classDef modelBox fill:#eaeaea,stroke:#000000,stroke-width:2px;
+        classDef paramBox fill:#ffffff,stroke:#000,stroke-width:2px,shape:parallelogram;
+
+        %% Top Data Sources
+        subgraph TopData [ ]
+        direction LR
+        D1[("Celeb-Real Dataset<br />(YouTube-Real videos)")]:::cylinder
+        D2[("Celeb-Synthesis Dataset<br />(GAN-generated fake videos)")]:::cylinder
+        D3[("DFDC Dataset<br />(Additional fake videos)")]:::cylinder
+        end
+        style TopData fill:transparent,stroke:none;
+
+        %% Combined Data
+        DCombined[("Combined Dataset<br />(Real + Fake Face Videos)")]:::cylinder
+
+        %% Connections from Top to Combined
+        D1 --> DCombined
+        D2 --> DCombined
+        D3 --> DCombined
+
+        %% Preprocessing
+        Preproc["Pre-processing:<br />- Uniform Frame Sampling (16 frames/video)<br />- MTCNN Face Detection<br />- Face
+        Cropping & Resize (224x224)<br />- ImageNet Normalization"]
+        DCombined --> Preproc
+
+        %% Processed Sequences
+        ProcSeq[("Processed Face-<br />Sequence Dataset")]:::cylinder
+        Preproc --> ProcSeq
+
+        %% Splits
+        TrainSeq[("Train Sequences<br />(80%)")]:::cylinder
+        TestSeq[("Test Sequences<br />(20%)")]:::cylinder
+
+        ProcSeq --> TrainSeq
+        ProcSeq --> TestSeq
+
+        %% DataLoader
+        Loader["DataLoader (Loads Frame Sequences & Labels)"]
+
+        TrainSeq --> Loader
+        TestSeq --> Loader
+
+        %% Hybrid Model Block
+        subgraph Hybrid [Hybrid Deepfake Detection Model]
+        direction TB
+        subgraph Branches [ ]
+        direction LR
+        B1["Spatial Branch:<br />DeiT-Small"]
+        B2["Temporal Branch:<br />Bidirectional LSTM"]
+        B3["Frequency Branch:<br />FFT + CNN"]
+        end
+        style Branches fill:transparent,stroke:none;
+
+        Fusion["Feature Fusion + FC Classifier (Sigmoid)"]
+
+        B1 --> Fusion
+        B2 --> Fusion
+        B3 --> Fusion
+        end
+        style Hybrid fill:#eaeaea,stroke:#000000,stroke-width:2px
+
+        Loader --> Hybrid
+
+        %% Evaluation Phase
+        Eval["Model Evaluation:<br />- Confusion Matrix<br />- ROC / AUC Curve<br />- GradCAM Visualizations"]
+        Metrics[/"Model Accuracy<br />& Metrics"/]:::paramBox
+
+        Hybrid --> Eval
+        Eval --> Metrics
+
+        %% Export
+        Export["Export Trained Model (ONNX Format)"]
+
+        Eval --> Export
+
+        %% Link styles
+        linkStyle default stroke:#000000,stroke-width:2px;
+    </div>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            flowchart: { curve: 'basis' },
+            themeVariables: {
+                lineColor: '#000000'
+            }
+        });
+    </script>
+</body>
+
+</html>
